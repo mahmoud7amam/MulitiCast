@@ -38,7 +38,8 @@ class BroadcastBot(discord.Client):
     def __init__(self, token):
         intents = discord.Intents.default()
         intents.members = True
-        intents.presences = True  # مهمة جداً لمعرفة حالة اتصال الأعضاء (أونلاين/أوفلاين)
+        intents.presences = True  # تطلب تفعيلها من موقع المطورين
+        intents.message_content = True
         super().__init__(intents=intents)
         self.token = token
         bots_status[token] = "جاري الاتصال..."
@@ -55,25 +56,28 @@ class BroadcastBot(discord.Client):
         failed = 0
         
         for guild in self.guilds:
-            # جلب قائمة الأعضاء بالكامل من السيرفر
-            async for member in guild.fetch_members(limit=None):
-                if member.bot:
-                    continue
-                
-                # فلترة الحالات لو المطلوب أونلاين فقط (+obc)
-                if online_only and member.status == discord.Status.offline:
-                    continue
-                
-                try:
-                    # إضافة منشن العضو في أول الرسالة
-                    mention_text = f"<@{member.id}> {message}"
-                    await member.send(mention_text)
-                    success += 1
-                    await asyncio.sleep(1.5)  # تأخير آمن لتجنب الباند
-                except discord.Forbidden:
-                    failed += 1
-                except Exception:
-                    failed += 1
+            try:
+                # جلب قائمة الأعضاء بالكامل من السيرفر
+                async for member in guild.fetch_members(limit=None):
+                    if member.bot:
+                        continue
+                    
+                    # فلترة الحالات لو المطلوب أونلاين فقط (+obc)
+                    if online_only and member.status == discord.Status.offline:
+                        continue
+                    
+                    try:
+                        # إضافة منشن العضو في أول الرسالة
+                        mention_text = f"<@{member.id}> {message}"
+                        await member.send(mention_text)
+                        success += 1
+                        await asyncio.sleep(1.5)  # تأخير آمن لتجنب الباند
+                    except discord.Forbidden:
+                        failed += 1
+                    except Exception:
+                        failed += 1
+            except Exception as e:
+                print(f"خطأ أثناء جلب أعضاء السيرفر {guild.name}: {e}")
         
         bots_status[self.token] = f"مكتمل (نجح: {success} | فشل: {failed}) ✅"
 
@@ -83,6 +87,7 @@ def start_bot_thread(token):
     asyncio.set_event_loop(loop)
     bot = BroadcastBot(token)
     try:
+        # استخدام loop.run_until_complete لضمان تشغيل البوت والـ Loop بشكل صحيح
         loop.run_until_complete(bot.start(token))
     except Exception as e:
         bots_status[token] = "خطأ في التوكن ❌"
@@ -157,8 +162,8 @@ def execute_broadcast():
     
     # تشغيل مهام الإرسال بالتوازي لكل بوت متاح دون تعطيل الـ Flask
     for bot in selected_bots:
-        loop = bot.loop
-        asyncio.run_coroutine_threadsafe(bot.run_broadcast(message, online_only), loop)
+        # إرسال الكوروتين بشكل متوافق برمجياً وآمن للـ Threads
+        asyncio.run_coroutine_threadsafe(bot.run_broadcast(message, online_only), bot.loop)
 
     return jsonify({
         "status": "success", 
@@ -168,5 +173,6 @@ def execute_broadcast():
 if __name__ == '__main__':
     # تشغيل البوتات المحفوظة مسبقاً في الخلفية
     init_all_saved_bots()
-    # تشغيل تطبيق الويب على الموبايل بورت 5000
+    # تشغيل تطبيق الويب على بورت 5000
     app.run(debug=False, port=5000, host='0.0.0.0')
+
